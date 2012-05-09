@@ -4,6 +4,7 @@ use warnings;
 use feature qw( switch );
 use autodie qw( system );
 use base qw( Exporter Test::Builder::Module );
+use Cwd;
 
 use Try::Tiny;
 
@@ -19,6 +20,8 @@ BEGIN {
         replace
         move
     };
+
+    $repository_dir = $ENV{'PWD'} . "/repos"
 }
 
 sub import {
@@ -51,6 +54,13 @@ sub file {
     close $fh;
 }
 
+sub do_system {
+    if (defined(${ENV{LOG}})) {
+        print @_; print "\n";
+    }
+    system @_;
+}
+
 ################# Repository actions ###################
 
 # initialize a repository in the current directory
@@ -60,6 +70,26 @@ sub init {
         when('darcs') { system "darcs init" }
         when('git')   { system "git init" }
         when('hg')    { system "hg init" }
+        when('svn')   { my $current_path = cwd();
+                        my $current_dir = qx"basename ${current_path}";
+                        chomp $current_dir;
+                        chdir "..";
+                        if ( -d "$repository_dir/svn_repo" ) {
+                            do_system "rm -rf $repository_dir/svn_repo"
+                        }
+                        if ( -d "$repository_dir/svn_temp" ) {
+                            do_system "rm -rf $repository_dir/svn_temp"
+                        }
+                        do_system "svnadmin create ${repository_dir}/svn_repo";
+                        do_system "svn checkout file://${repository_dir}/svn_repo svn_temp";
+                        chdir "svn_temp";
+                        do_system "mkdir ${current_dir}";
+                        do_system "svn add ${current_dir}";
+                        do_system "svn commit -m 'create repository'";
+                        chdir "..";
+                        do_system "svn checkout file://${repository_dir}/svn_repo/${current_dir} ${current_dir}";
+                        chdir $current_dir;
+                      }
         default       { die "Must specify VCS environment\n" }
     }
 }
@@ -72,6 +102,7 @@ sub add {
         when('darcs') { system "darcs add @files" }
         when('git')   { system "git add @files" }
         when('hg')    { system "hg  add @files" }
+        when('svn')   { do_system "svn add @files" }
     }
 }
 
@@ -85,6 +116,7 @@ sub commit {
         }
         when('git') { system "git commit -a -m '$message'" }
         when('hg')  { system "hg  commit -m '$message'" }
+        when('svn') { do_system "svn commit -m '$message'" }
     }
 }
 
@@ -98,6 +130,9 @@ sub clone {
         }
         when('git') { system "git clone $source $target" }
         when('hg')  { system "hg  clone $source $target" }
+        when('svn') { do_system "svn cp file://${repository_dir}/svn_repo/$source file://${repository_dir}/svn_repo/$target -m 'create branch $target'";
+                      do_system "svn checkout file://${repository_dir}/svn_repo/$target $target";
+                    }
     }
 }
 
@@ -132,6 +167,16 @@ sub perform_merge {
             system "hg merge";
             system "hg commit -m 'merged from $source'";
         }
+        when('svn') { my $current_path = cwd();
+                      my $current_dir = qx"basename ${current_path}";
+                      chomp $current_dir;
+                      my $source_dir = qx"basename ${source}";
+                      chomp $source_dir;
+                      do_system "svn cp file://${repository_dir}/svn_repo/$source_dir file://${repository_dir}/svn_repo/$current_dir -m 'branching $source_dir into $current_dir'";
+                      chdir "..";
+                      do_system "svn checkout file://${repository_dir}/svn_repo/$current_dir $current_dir";
+                      chdir $current_dir;
+                    }
     }
 }
 
@@ -161,7 +206,7 @@ sub merge_ok {
 # apply a sed script to a file, modifying it in-place
 sub sed {
     my ($script, $file) = @_;
-    system "sed -i '' '$script' $file";
+    system "sed -i -e '$script' $file";
 }
 
 # perform search and replace across an entire file
@@ -181,6 +226,7 @@ sub move {
         when('darcs') { system "darcs move $old $new" }
         when('git')   { system "git   mv   $old $new" }
         when('hg')    { system "hg    mv   $old $new" }
+        when('svn')   { do_system "svn   mv   $old $new" }
     }
 }
 

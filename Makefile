@@ -10,3 +10,5 @@ git:
 hg:
 	env VCS=hg prove -lr t
 
+svn:
+	env VCS=svn prove -vlr t
